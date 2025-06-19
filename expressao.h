@@ -1,18 +1,16 @@
-// expressao.h (não modificar)
-#ifndef EXPRESSAO_H
-#define EXPRESSAO_H
 
-typedef struct {
-    char posFixa[512];     // Expressão na forma pos-fixa, como 3 12 4 + *
-    char inFixa[512];      // Expressão na forma infixa, como 3 * (12 + 4)
+#ifndef EXPRESSAO_H 
+#define EXPRESSAO_H 
+
+typedef struct { 
+    char posFixa[512];     // Expressão na forma pos-fixa, como 3 12 4 + * 
+    char inFixa[512];      // Expressão na forma infixa, como 3 * (12 + 4) 
     float Valor;           // Valor numérico da expressão   
-} Expressao;
+} Expressao; 
 
-char *getFormaInFixa(char *Str); // Retorna a forma inFixa de Str (posFixa)
-char *getFormaPosFixa(char *Str); // Retorna a forma posFixa de Str (inFixa)
-float getValorPosFixa(char *StrPosFixa); // Calcula o valor de Str (na forma posFixa)
-float getValorInFixa(char *StrInFixa); // Calcula o valor de Str (na forma inFixa)
+char *getFormaInFixa(char *Str);      // Pós-fixa → Infixa
+char *getFormaPosFixa(char *Str);     // Infixa → Pós-fixa
+float getValorPosFixa(char *Str);     // Avalia pós-fixa
+float getValorInFixa(char *Str);      // Avalia infixa
 
-#endif // EXPRESSAO_H
-
-
+#endif 

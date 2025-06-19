@@ -1,160 +1,276 @@
-// expressao.c
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <math.h>
-#include <limits.h>
+#include <ctype.h>
 #include "expressao.h"
 
-#define MAX_TOKENS 512
-#define MAX_TOKEN_LEN 64
+#define MAX 512
 
-static char *stackS[MAX_TOKENS];
-static int topS;
-static void pushS(char *s) { stackS[++topS] = s; }
-static char *popS(void) { return (topS >= 0) ? stackS[topS--] : NULL; }
-static char *peekS(void) { return (topS >= 0) ? stackS[topS] : NULL; }
+// ---------- Pilhas ---------- //
+typedef struct {
+    float itens[MAX];
+    int topo;
+} PilhaFloat;
 
-static float stackF[MAX_TOKENS];
-static int topF;
-static void pushF(float v) { stackF[++topF] = v; }
-static float popF(void) { return (topF >= 0) ? stackF[topF--] : 0.0f; }
+typedef struct {
+    char itens[MAX][32];
+    int topo;
+} PilhaString;
 
-static int prec(const char *op) {
+void inicializaPilhaFloat(PilhaFloat *p) { p->topo = -1; }
+int vaziaFloat(PilhaFloat *p) { return p->topo == -1; }
+void pushFloat(PilhaFloat *p, float val) { p->itens[++p->topo] = val; }
+float popFloat(PilhaFloat *p) { return vaziaFloat(p) ? NAN : p->itens[p->topo--]; }
+
+void inicializaPilhaString(PilhaString *p) { p->topo = -1; }
+int vaziaString(PilhaString *p) { return p->topo == -1; }
+void pushString(PilhaString *p, char *val) { strcpy(p->itens[++p->topo], val); }
+char* popString(PilhaString *p) { return vaziaString(p) ? "" : p->itens[p->topo--]; }
+
+// ---------- Auxiliares ---------- //
+int precedencia(char *op) {
     if (strcmp(op, "^") == 0) return 4;
-    if (!strcmp(op, "raiz") || !strcmp(op, "sen") || !strcmp(op, "cos") || !strcmp(op, "tg") || !strcmp(op, "log")) return 5;
-    if (!strcmp(op, "*") || !strcmp(op, "/") || !strcmp(op, "%")) return 3;
-    if (!strcmp(op, "+") || !strcmp(op, "-")) return 2;
-    return 0;
-}
-static int isOperator(const char *s) {
-    return (!strcmp(s, "+") || !strcmp(s, "-") || !strcmp(s, "*") || !strcmp(s, "/") || !strcmp(s, "%") || !strcmp(s, "^"));
-}
-static int isFunction(const char *s) {
-    return (!strcmp(s, "raiz") || !strcmp(s, "sen") || !strcmp(s, "cos") || !strcmp(s, "tg") || !strcmp(s, "log"));
+    if (strcmp(op, "*") == 0 || strcmp(op, "/") == 0 || strcmp(op, "%") == 0) return 3;
+    if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0) return 2;
+    return 1;
 }
 
-static int tokenize(const char *expr, char tokens[][MAX_TOKEN_LEN]) {
-    int i = 0, k = 0;
-    while (expr[i] && k < MAX_TOKENS) {
-        if (isspace((unsigned char)expr[i])) { i++; continue; }
-        if (expr[i] == '(' || expr[i] == ')') {
-            tokens[k][0] = expr[i]; tokens[k][1] = '\0'; k++; i++; continue;
-        }
-        int j = 0;
-        while (expr[i] && !isspace((unsigned char)expr[i]) && expr[i] != '(' && expr[i] != ')') {
-            tokens[k][j++] = expr[i++];
-        }
-        tokens[k][j] = '\0';
-        k++;
-    }
-    return k;
+int isOperador(char *op) {
+    return (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0 ||
+            strcmp(op, "/") == 0 || strcmp(op, "%") == 0 || strcmp(op, "^") == 0);
 }
 
-char *getFormaPosFixa(char *Str) {
-    char tokens[MAX_TOKENS][MAX_TOKEN_LEN], output[512];
-    int n = tokenize(Str, tokens);
-    output[0] = '\0'; topS = -1;
-    for (int i = 0; i < n; i++) {
-        char *tok = tokens[i];
-        if (isdigit((unsigned char)tok[0]) || tok[0] == '.') {
-            strcat(output, tok); strcat(output, " ");
-        } else if (isFunction(tok)) {
-            pushS(strdup(tok));
-        } else if (isOperator(tok)) {
-            while (topS >= 0 && (isOperator(peekS()) || isFunction(peekS())) &&
-                   ((prec(peekS()) > prec(tok)) || (prec(peekS()) == prec(tok) && strcmp(tok, "^") != 0))) {
-                char *op = popS(); strcat(output, op); strcat(output, " "); free(op);
+int isFuncao(char *str) {
+    return (strcmp(str, "sen") == 0 || strcmp(str, "cos") == 0 || strcmp(str, "tg") == 0 ||
+            strcmp(str, "log") == 0 || strcmp(str, "raiz") == 0);
+}
+
+float grauParaRad(float grau) {
+    return grau * M_PI / 180.0;
+}
+
+
+// ---------- Conversao infixa → posfixa (VERSÃO QUE NÃO PRECISA DE ESPAÇOS) ---------- //
+char* getFormaPosFixa(char *infixa) {
+    static char saida[MAX];
+    PilhaString operadores;
+    int parenteses = 0;
+    inicializaPilhaString(&operadores);
+    saida[0] = '\0';
+
+    char *ptr = infixa;
+
+    while (*ptr) {
+        if (isspace((unsigned char)*ptr)) {
+            ptr++;
+            continue;
+        }
+
+        if (isdigit((unsigned char)*ptr) || *ptr == '.') {
+            char num_str[32];
+            int i = 0;
+            while (isdigit((unsigned char)*ptr) || *ptr == '.') {
+                num_str[i++] = *ptr++;
             }
-            pushS(strdup(tok));
-        } else if (!strcmp(tok, "(")) {
-            pushS(strdup(tok));
-        } else if (!strcmp(tok, ")")) {
-            while (topS >= 0 && strcmp(peekS(), "(") != 0) {
-                char *op = popS(); strcat(output, op); strcat(output, " "); free(op);
+            num_str[i] = '\0';
+            strcat(saida, num_str);
+            strcat(saida, " ");
+            continue;
+        }
+
+        if (isalpha((unsigned char)*ptr)) {
+            char func_str[32];
+            int i = 0;
+            while (isalpha((unsigned char)*ptr)) {
+                func_str[i++] = *ptr++;
             }
-            free(popS()); // remove '('
-            if (topS >= 0 && isFunction(peekS())) {
-                char *fn = popS(); strcat(output, fn); strcat(output, " "); free(fn);
+            func_str[i] = '\0';
+
+            if (isFuncao(func_str)) {
+                pushString(&operadores, func_str);
+            } else {
+                printf("Erro: token invalido encontrado: %s\n", func_str);
+                return "";
             }
+            continue;
         }
+
+        char op_char[2] = {*ptr, '\0'};
+
+        if (strcmp(op_char, "(") == 0) {
+            parenteses++;
+            pushString(&operadores, op_char);
+        } else if (strcmp(op_char, ")") == 0) {
+            parenteses--;
+            while (!vaziaString(&operadores) && strcmp(operadores.itens[operadores.topo], "(") != 0) {
+                strcat(saida, popString(&operadores));
+                strcat(saida, " ");
+            }
+            if (vaziaString(&operadores)) {
+                printf("Erro: quantidade de parenteses incorreta.\n");
+                return "";
+            }
+            popString(&operadores);
+
+            if (!vaziaString(&operadores) && isFuncao(operadores.itens[operadores.topo])) {
+                strcat(saida, popString(&operadores));
+                strcat(saida, " ");
+            }
+        } else if (isOperador(op_char)) {
+            while (!vaziaString(&operadores) && isOperador(operadores.itens[operadores.topo]) &&
+                  (precedencia(op_char) < precedencia(operadores.itens[operadores.topo]) ||
+                  (precedencia(op_char) == precedencia(operadores.itens[operadores.topo]) && strcmp(op_char, "^") != 0))) {
+                strcat(saida, popString(&operadores));
+                strcat(saida, " ");
+            }
+            pushString(&operadores, op_char);
+        } else {
+            printf("Erro: caractere invalido encontrado: %c\n", *ptr);
+            return "";
+        }
+
+        ptr++;
     }
-    while (topS >= 0) { char *op = popS(); strcat(output, op); strcat(output, " "); free(op); }
-    return strdup(output);
+
+    if (parenteses != 0) {
+        printf("Erro: quantidade de parenteses incorreta.\n");
+        return "";
+    }
+
+    while (!vaziaString(&operadores)) {
+        if(strcmp(operadores.itens[operadores.topo], "(") == 0) {
+            printf("Erro: quantidade de parenteses incorreta.\n");
+            return "";
+        }
+        strcat(saida, popString(&operadores));
+        strcat(saida, " ");
+    }
+
+    return saida;
 }
 
-typedef struct Node { char *expr; int prec; } Node;
 
-char *getFormaInFixa(char *Str) {
-    char tokens[MAX_TOKENS][MAX_TOKEN_LEN];
-    int n = tokenize(Str, tokens), topN = -1;
-    Node *stackN[MAX_TOKENS];
-    for (int i = 0; i < n; i++) {
-        char *tok = tokens[i];
-        if (isdigit((unsigned char)tok[0]) || tok[0] == '.') {
-            Node *node = malloc(sizeof(Node)); node->expr = strdup(tok); node->prec = INT_MAX;
-            stackN[++topN] = node;
-        } else if (isOperator(tok)) {
-            Node *b = stackN[topN--], *a = stackN[topN--];
-            int p = prec(tok);
-            char *astr = a->expr, *bstr = b->expr;
-            if (a->prec < p) { int la = strlen(astr)+3; char *t = malloc(la); snprintf(t, la, "(%s)", astr); astr = t; }
-            if (b->prec < p) { int lb = strlen(bstr)+3; char *t = malloc(lb); snprintf(t, lb, "(%s)", bstr); bstr = t; }
-            int lbuff = strlen(astr)+strlen(tok)+strlen(bstr)+4;
-            char *buf = malloc(lbuff); snprintf(buf, lbuff, "%s %s %s", astr, tok, bstr);
-            Node *node = malloc(sizeof(Node)); node->expr = buf; node->prec = p;
-            free(a->expr); free(b->expr); free(a); free(b);
-            if (astr != a->expr) free(astr); if (bstr != b->expr) free(bstr);
-            stackN[++topN] = node;
-        } else if (isFunction(tok)) {
-            Node *a = stackN[topN--]; int p = prec(tok);
-            char *astr = a->expr;
-            if (a->prec < p) { int la = strlen(astr)+3; char *t = malloc(la); snprintf(t, la, "(%s)", astr); astr = t; }
-            int lbuff = strlen(tok)+strlen(astr)+3;
-            char *buf = malloc(lbuff); snprintf(buf, lbuff, "%s(%s)", tok, astr);
-            Node *node = malloc(sizeof(Node)); node->expr = buf; node->prec = p;
-            free(a->expr); free(a); if (astr != a->expr) free(astr);
-            stackN[++topN] = node;
+// ---------- Conversao posfixa → infixa ---------- //
+char* getFormaInFixa(char *posfixa) {
+    static char saida[MAX];
+    PilhaString pilha;
+    inicializaPilhaString(&pilha);
+
+    char temp_posfixa[MAX];
+    strcpy(temp_posfixa, posfixa);
+
+    char *ptr = strtok(temp_posfixa, " ");
+    while (ptr) {
+        if (isOperador(ptr)) {
+            if (pilha.topo < 1) {
+                printf("Erro: Expressao pos-fixa mal formada.\n");
+                return "";
+            }
+            char b[128], a[128];
+            strcpy(b, popString(&pilha));
+            strcpy(a, popString(&pilha));
+            char temp[256];
+            sprintf(temp, "(%s %s %s)", a, ptr, b);
+            pushString(&pilha, temp);
+        } else if (isFuncao(ptr)) {
+            if (pilha.topo < 0) {
+                printf("Erro: Expressao pos-fixa mal formada.\n");
+                return "";
+            }
+            char a[128];
+            strcpy(a, popString(&pilha));
+            char temp[256];
+            sprintf(temp, "%s(%s)", ptr, a);
+            pushString(&pilha, temp);
+        } else {
+            pushString(&pilha, ptr);
         }
+        ptr = strtok(NULL, " ");
     }
-    char *res = strdup(stackN[topN]->expr);
-    free(stackN[topN]->expr); free(stackN[topN]);
-    // remove external parentheses
-    int len = strlen(res); if (len>1 && res[0]=='(' && res[len-1]==')') {
-        int bal=0, ext=1; for (int i=0;i<len;i++){ if(res[i]=='(')bal++; else if(res[i]==')')bal--; if(!bal && i<len-1){ext=0;break;} }
-        if(ext){ char *s = malloc(len-1); strncpy(s, res+1, len-2); s[len-2]='\0'; free(res); res=s; }
+
+    if (pilha.topo == 0) {
+        strcpy(saida, popString(&pilha));
+    } else {
+        printf("Erro: Expressao pos-fixa mal formada.\n");
+        return "";
     }
-    return res;
+
+    return saida;
 }
 
-float getValorPosFixa(char *StrPosFixa) {
-    char tokens[MAX_TOKENS][MAX_TOKEN_LEN]; int n=tokenize(StrPosFixa, tokens);
-    topF=-1;
-    for(int i=0;i<n;i++){
-        char *tok=tokens[i];
-        if(isdigit((unsigned char)tok[0])||tok[0]=='.') pushF(atof(tok));
-        else if(isOperator(tok)){
-            float b=popF(), a=popF(), r;
-            if(!strcmp(tok,"+")) r=a+b; else if(!strcmp(tok,"-")) r=a-b;
-            else if(!strcmp(tok,"*")) r=a*b; else if(!strcmp(tok,"/")) r=a/b;
-            else if(!strcmp(tok,"%")) r=fmodf(a,b); else r=powf(a,b);
-            pushF(r);
-        } else if(isFunction(tok)){
-            float a=popF(), r;
-            if(!strcmp(tok,"raiz")) r=sqrtf(a);
-            else if(!strcmp(tok,"sen")) r=sinf(a*M_PI/180);
-            else if(!strcmp(tok,"cos")) r=cosf(a*M_PI/180);
-            else if(!strcmp(tok,"tg"))  r=tanf(a*M_PI/180);
-            else r=log10f(a);
-            pushF(r);
+
+
+float getValorPosFixa(char *posfixa) {
+    PilhaFloat pilha;
+    inicializaPilhaFloat(&pilha);
+    
+    char temp_posfixa[MAX];
+    strcpy(temp_posfixa, posfixa);
+
+    char *ptr = strtok(temp_posfixa, " ");
+    while (ptr) {
+        if (isOperador(ptr)) {
+            if (pilha.topo < 1) {
+                printf("Erro de sintaxe: Operador '%s' sem operandos suficientes.\n", ptr);
+                return NAN;
+            }
+            float b = popFloat(&pilha);
+            float a = popFloat(&pilha);
+            if (strcmp(ptr, "+") == 0) pushFloat(&pilha, a + b);
+            else if (strcmp(ptr, "-") == 0) pushFloat(&pilha, a - b);
+            else if (strcmp(ptr, "*") == 0) pushFloat(&pilha, a * b);
+            else if (strcmp(ptr, "/") == 0) {
+                if (b==0) {
+                    printf("Erro matematico: Divisao por zero.\n"); // MENSAGEM ADICIONADA
+                    return NAN;
+                }
+                pushFloat(&pilha, a / b);
+            }
+            else if (strcmp(ptr, "%") == 0) pushFloat(&pilha, fmod(a, b));
+            else if (strcmp(ptr, "^") == 0) pushFloat(&pilha, pow(a, b));
+        } else if (isFuncao(ptr)) {
+            if (pilha.topo < 0) {
+                printf("Erro de sintaxe: Funcao '%s' sem argumento.\n", ptr);
+                return NAN;
+            }
+            float a = popFloat(&pilha);
+            if (strcmp(ptr, "sen") == 0) pushFloat(&pilha, sin(grauParaRad(a)));
+            else if (strcmp(ptr, "cos") == 0) pushFloat(&pilha, cos(grauParaRad(a)));
+            else if (strcmp(ptr, "tg") == 0) pushFloat(&pilha, tan(grauParaRad(a)));
+            else if (strcmp(ptr, "log") == 0) {
+                if (a <= 0) {
+                    printf("Erro matematico: Logaritmo de valor nao positivo.\n"); // MENSAGEM ADICIONADA
+                    return NAN;
+                }
+                pushFloat(&pilha, log10(a));
+            }
+            else if (strcmp(ptr, "raiz") == 0) {
+                 if (a < 0) {
+                    printf("Erro matematico: Raiz quadrada de valor negativo.\n"); // MENSAGEM ADICIONADA
+                    return NAN;
+                 }
+                pushFloat(&pilha, sqrt(a));
+            }
+        } else {
+            pushFloat(&pilha, atof(ptr));
         }
+        ptr = strtok(NULL, " ");
     }
-    return popF();
+
+    if (pilha.topo != 0) {
+        printf("Erro de sintaxe: A expressao tem operandos em excesso.\n");
+        return NAN;
+    }
+    return popFloat(&pilha);
 }
 
+// ---------- Avaliacao infixa ---------- //
 float getValorInFixa(char *StrInFixa) {
-    char *p=getFormaPosFixa(StrInFixa); float v=getValorPosFixa(p);
-    free(p); return v;
+    char temp[MAX];
+    strcpy(temp, StrInFixa);
+    char *pos = getFormaPosFixa(temp);
+    if (strlen(pos) == 0) return NAN;
+    return getValorPosFixa(pos);
 }
-
